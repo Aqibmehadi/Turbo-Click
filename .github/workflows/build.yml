@@ -1,0 +1,284 @@
+name: Build
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Write project
+        run: |
+          mkdir -p proj/app/src/main/java/com/turbo/click proj/app/src/main/res/xml proj/app/src/main/res/values
+          cd proj
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          include ':app'
+          EOF
+          cat > build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF
+          cat > app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'com.turbo.click'
+            compileSdk 34
+            defaultConfig {
+              applicationId 'com.turbo.click'
+              minSdk 24
+              targetSdk 33
+              versionCode 2
+              versionName '2.0'
+            }
+            buildTypes {
+              debug {
+                debuggable false
+                minifyEnabled false
+              }
+            }
+          }
+          EOF
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+            <string name="acc_desc">Turbo Click auto tap service</string>
+          </resources>
+          EOF
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <application android:label="Turbo Click" android:theme="@android:style/Theme.DeviceDefault.Light">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+              <service android:name=".TapService" android:exported="false"
+                  android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                <intent-filter>
+                  <action android:name="android.accessibilityservice.AccessibilityService"/>
+                </intent-filter>
+                <meta-data android:name="android.accessibilityservice" android:resource="@xml/acc"/>
+              </service>
+            </application>
+          </manifest>
+          EOF
+          cat > app/src/main/res/xml/acc.xml <<'EOF'
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:description="@string/acc_desc"
+              android:canPerformGestures="true"
+              android:accessibilityEventTypes="typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:notificationTimeout="100"/>
+          EOF
+          cat > app/src/main/java/com/turbo/click/MainActivity.java <<'EOF'
+          package com.turbo.click;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.os.Bundle;
+          import android.provider.Settings;
+          import android.text.InputType;
+          import android.view.View;
+          import android.widget.*;
+          public class MainActivity extends Activity {
+            protected void onCreate(Bundle b) {
+              super.onCreate(b);
+              final SharedPreferences sp = getSharedPreferences("s", 0);
+              ScrollView sv = new ScrollView(this);
+              LinearLayout l = new LinearLayout(this);
+              l.setOrientation(LinearLayout.VERTICAL);
+              l.setPadding(40, 80, 40, 40);
+              sv.addView(l);
+              TextView t1 = new TextView(this);
+              t1.setText("Delay between taps (ms). 0 = fastest");
+              final EditText e1 = new EditText(this);
+              e1.setInputType(InputType.TYPE_CLASS_NUMBER);
+              e1.setText("" + sp.getInt("interval", 1));
+              TextView t2 = new TextView(this);
+              t2.setText("Simultaneous touches (1-10)");
+              final EditText e2 = new EditText(this);
+              e2.setInputType(InputType.TYPE_CLASS_NUMBER);
+              e2.setText("" + sp.getInt("count", 1));
+              Button save = new Button(this);
+              save.setText("SAVE");
+              save.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                  int i = 1, c = 1;
+                  try { i = Integer.parseInt(e1.getText().toString()); } catch (Exception x) {}
+                  try { c = Integer.parseInt(e2.getText().toString()); } catch (Exception x) {}
+                  if (i < 0) i = 0;
+                  if (c < 1) c = 1;
+                  if (c > 10) c = 10;
+                  sp.edit().putInt("interval", i).putInt("count", c).apply();
+                  Toast.makeText(MainActivity.this, "Saved", Toast.LENGTH_SHORT).show();
+                }
+              });
+              Button acc = new Button(this);
+              acc.setText("1) OPEN ACCESSIBILITY SETTINGS");
+              acc.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                  startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                }
+              });
+              Button bat = new Button(this);
+              bat.setText("2) BATTERY: SET UNRESTRICTED");
+              bat.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                  try {
+                    startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                  } catch (Exception x) {
+                    startActivity(new Intent(Settings.ACTION_SETTINGS));
+                  }
+                }
+              });
+              TextView help = new TextView(this);
+              help.setText("\nSteps:\n1) Accessibility mein Turbo Click ON karo.\n2) Battery mein Turbo Click ko Unrestricted / Don't optimize karo.\n3) Screen pe START button aur laal dot dikhega.\n4) Laal dot ko drag karke target jagah pe rakho.\n5) START dabao. Rokne ke liye STOP.\n\nTips:\n- Lag aaye to Simultaneous touches 2-5 rakho aur delay 0-5 ms.\n- Purane phone pe delay thoda badhao (10-30 ms).\n- Settings badalne ke baad SAVE dabao, phir START karo.");
+              l.addView(acc);
+              l.addView(bat);
+              l.addView(t1); l.addView(e1);
+              l.addView(t2); l.addView(e2);
+              l.addView(save);
+              l.addView(help);
+              setContentView(sv);
+            }
+          }
+          EOF
+          cat > app/src/main/java/com/turbo/click/TapService.java <<'EOF'
+          package com.turbo.click;
+          import android.accessibilityservice.AccessibilityService;
+          import android.accessibilityservice.GestureDescription;
+          import android.content.SharedPreferences;
+          import android.graphics.Path;
+          import android.graphics.PixelFormat;
+          import android.graphics.drawable.GradientDrawable;
+          import android.os.Handler;
+          import android.os.HandlerThread;
+          import android.view.*;
+          import android.view.accessibility.AccessibilityEvent;
+          import android.widget.Button;
+          public class TapService extends AccessibilityService {
+            WindowManager wm;
+            View target;
+            Button btn;
+            WindowManager.LayoutParams tp, bp;
+            HandlerThread ht;
+            Handler h;
+            volatile boolean running = false;
+            volatile int interval = 1;
+            int count = 1;
+            GestureDescription gesture;
+            Runnable loop = new Runnable() { public void run() { tap(); } };
+            GestureResultCallback cb = new GestureResultCallback() {
+              public void onCompleted(GestureDescription d) { if (running) h.postDelayed(loop, interval); }
+              public void onCancelled(GestureDescription d) { if (running) h.postDelayed(loop, interval + 5); }
+            };
+            public void onAccessibilityEvent(AccessibilityEvent e) {}
+            public void onInterrupt() {}
+            WindowManager.LayoutParams lp(int w, int hh, int x, int y) {
+              WindowManager.LayoutParams p = new WindowManager.LayoutParams(w, hh,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT);
+              p.gravity = Gravity.TOP | Gravity.LEFT;
+              p.x = x; p.y = y;
+              return p;
+            }
+            void drag(final View v, final WindowManager.LayoutParams p, final Runnable click) {
+              v.setOnTouchListener(new View.OnTouchListener() {
+                float dx, dy; int sx, sy; boolean moved;
+                public boolean onTouch(View view, MotionEvent e) {
+                  switch (e.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                      dx = e.getRawX(); dy = e.getRawY(); sx = p.x; sy = p.y; moved = false;
+                      return true;
+                    case MotionEvent.ACTION_MOVE:
+                      float mx = e.getRawX() - dx, my = e.getRawY() - dy;
+                      if (Math.abs(mx) > 10 || Math.abs(my) > 10) moved = true;
+                      if (moved) { p.x = sx + (int) mx; p.y = sy + (int) my; wm.updateViewLayout(v, p); }
+                      return true;
+                    case MotionEvent.ACTION_UP:
+                      if (!moved && click != null) click.run();
+                      return true;
+                  }
+                  return false;
+                }
+              });
+            }
+            protected void onServiceConnected() {
+              if (ht == null) {
+                ht = new HandlerThread("tapper");
+                ht.start();
+                h = new Handler(ht.getLooper());
+              }
+              wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+              target = new View(this);
+              GradientDrawable g = new GradientDrawable();
+              g.setShape(GradientDrawable.OVAL);
+              g.setColor(0xAAFF0000);
+              g.setStroke(4, 0xFFFFFFFF);
+              target.setBackground(g);
+              tp = lp(90, 90, 400, 800);
+              drag(target, tp, null);
+              wm.addView(target, tp);
+              btn = new Button(this);
+              btn.setText("START");
+              btn.setTextColor(0xFFFFFFFF);
+              btn.setBackgroundColor(0xCC006600);
+              bp = lp(220, 120, 50, 300);
+              drag(btn, bp, new Runnable() { public void run() { toggle(); } });
+              wm.addView(btn, bp);
+            }
+            void toggle() {
+              if (!running) {
+                SharedPreferences sp = getSharedPreferences("s", 0);
+                interval = sp.getInt("interval", 1);
+                count = sp.getInt("count", 1);
+                int cx = tp.x + 45, cy = tp.y + 45;
+                GestureDescription.Builder b = new GestureDescription.Builder();
+                for (int i = 0; i < count; i++) {
+                  Path p = new Path();
+                  p.moveTo(cx + i * 6, cy);
+                  b.addStroke(new GestureDescription.StrokeDescription(p, 0, 1));
+                }
+                gesture = b.build();
+                btn.setText("STOP");
+                btn.setBackgroundColor(0xCCAA0000);
+                tp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                wm.updateViewLayout(target, tp);
+                running = true;
+                h.post(loop);
+              } else {
+                running = false;
+                btn.setText("START");
+                btn.setBackgroundColor(0xCC006600);
+                h.removeCallbacksAndMessages(null);
+                tp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                wm.updateViewLayout(target, tp);
+              }
+            }
+            void tap() {
+              if (!running || gesture == null) return;
+              boolean ok = dispatchGesture(gesture, cb, h);
+              if (!ok && running) h.postDelayed(loop, 50);
+            }
+            public void onDestroy() {
+              super.onDestroy();
+              running = false;
+              if (h != null) h.removeCallbacksAndMessages(null);
+              if (ht != null) ht.quitSafely();
+              try { wm.removeView(target); wm.removeView(btn); } catch (Exception e) {}
+            }
+          }
+          EOF
+      - name: Build
+        working-directory: proj
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TurboClick
+          path: proj/app/build/outputs/apk/debug/app-debug.apk
